@@ -1,187 +1,163 @@
 name: DevSecOps Pipeline
+
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
 
-# TODO#0: Declare workflow permissions.
 permissions:
   contents: read
-  # TODO#0a: add permission required for SARIF upload
-  security-events: write
-  # TODO#0b: add permission so Gitleaks/Sonar can comment on PRs + issues
+  id-token: write
   issues: write
   pull-requests: write
-  # TODO#0c: add permission for OIDC token (id-token)
-  id-token: write
+  security-events: write
   actions: read
 
-jobs: 
-    # GATE#0: Secret scanning (TruffleHog + Gitleaks)
-    secret-scanning:
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
-              with:
-                # TODO#1: Set fetch-depth to 0 so TruffleHog can diff base..HEAD
-                fetch-depth: 0
+jobs:
+  # GATE#0: Secret scanning
+  secret-scanning:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-            - name: Run TruffleHog
-              uses: trufflesecurity/trufflehog@main
-              continue-on-error: true
-              with:
-                path: ./
-                # TODO#2: set base + HEAD refs
-                base: ${{ github.event.repository.default_branch }}
-                head: ${{ github.sha }}
-                # TODO#3: add extra_args flag to report ONLY VERIFIED secrets
-                extra_args: --only-verified
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        continue-on-error: true
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --results=verified
 
-            # TODO#4: add Gitleaks step below.
-            - name: Run Gitleaks
-              uses: gitleaks/gitleaks-action@v2
-              continue-on-error: true
-              env:
-                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
-                GITLEAKS_ENABLE_SUMMARY: true
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
+          GITLEAKS_ENABLE_SUMMARY: true
 
-    # GATE#1a: SAST via SonarQube 
-    sast-scan:
-        runs-on: ubuntu-latest
-        needs: secret-scanning
-        if: ${{ !cancelled() }} 
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
-              with:
-                # TODO#5: Sonar needs full history for blame/new-code detection
-                fetch-depth: 0
+  # GATE#1: SAST
+  sast-scan:
+    runs-on: ubuntu-latest
+    needs: secret-scanning
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'javascript-typescript' ]
 
-            # TODO#6: add SonarQube scan step
-            - name: SonarQube Scan
-              uses: SonarSource/sonarqube-scan-action@v7.1.0
-              continue-on-error: true
-              env:
-                  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    # GATE#1b: SAST via CodeQL
-    codeql-scan:
-        runs-on: ubuntu-latest
-        needs: secret-scanning
-        if: ${{ !cancelled() }} 
-        strategy:
-            matrix:
-                # TODO#7: set correct CodeQL language for this Next.js / React project
-                language: [ 'javascript-typescript' ]
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v7.1.0
+        continue-on-error: true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-            - name: Initialize CodeQL
-              uses: github/codeql-action/init@v3
-              with:
-                languages: ${{ matrix.language }}
-                # TODO#8: enable extended security + quality query suites
-                queries: security-extended,security-and-quality
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        continue-on-error: true
+        with:
+          languages: ${{ matrix.language }}
+          queries: +security-extended,+security-and-quality
 
-            # TODO#9: add analyze step
-            - name: Perform CodeQL Analysis
-              uses: github/codeql-action/analyze@v3
-              with:
-                category: "/language:${{ matrix.language }}"
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+        continue-on-error: true
 
-    # GATE#2: Dependency scanning via OWASP Dependency-Check
-    dependency-scanning:
-        runs-on: ubuntu-latest
-        needs: [sast-scan, codeql-scan]
-        if: ${{ !cancelled() }}
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        continue-on-error: true
+        with:
+          category: /language:${{ matrix.language }}
 
-            # TODO#10: set up Node 20
-            - name: Setup Node
-              uses: actions/setup-node@v4
-              with:
-                node-version: '20'
+  # GATE#2: Dependency scanning via OWASP Dependency-Check
+  dependency-scanning:
+    runs-on: ubuntu-latest
+    needs: [sast-scan, secret-scanning]
+    if: ${{ !cancelled() }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-            # TODO#11: install npm deps so Dependency-Check can resolve full tree
-            - name: Install Dependencies
-              run: npm ci
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-            - name: Depcheck
-              uses: dependency-check/Dependency-Check_Action@main
-              continue-on-error: true 
-              id: Depcheck 
-              with:
-                project: 'DontEverPushThisCodeV2'
-                path: '.' 
-                # TODO#12: format for GitHub Security tab
-                format: 'SARIF'
-                out: 'reports'
-                # TODO#13: set fail threshold — block on CVSS >= 7.0 (HIGH)
-                args: >
-                    --failOnCVSS 7.0
-                    --enableRetired
+      - name: Install npm dependencies
+        run: npm install
 
-            # TODO#14: upload Depcheck SARIF
-            - name: Upload Depcheck SARIF to Security tab
-              if: always() 
-              uses: github/codeql-action/upload-sarif@v3
-              continue-on-error: true
-              with:
-                  sarif_file: reports/dependency-check-report.sarif
-                  category: dependency-check
+      - name: Depcheck
+        uses: dependency-check/Dependency-Check_Action@main
+        continue-on-error: true
+        id: Depcheck
+        with:
+          project: 'DontEverPushThisCodeV2'
+          path: '.'
+          format: 'SARIF'
+          out: 'reports'
+          args: >
+            --failOnCVSS 7
+            --enableRetired
 
-            # TODO#15: upload raw Depcheck report folder
-            - name: Upload Depcheck HTML report as artifact
-              if: always() 
-              uses: actions/upload-artifact@v4
-              with:
-                name: depcheck-report
-                path: reports/
+      - name: Upload Depcheck SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: reports/dependency-check-report.sarif
+          category: dependency-check
 
-    # GATE#3: Container/Image scanning via Trivy
-    image-scanning:
-        runs-on: ubuntu-latest
-        needs: [dependency-scanning]
-        if: ${{ !cancelled() }}
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
+      - name: Upload Depcheck HTML report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: depcheck-report
+          path: reports/
 
-            # TODO#16: build the Docker image
-            - name: Build Docker Image
-              run: docker build -t my-app:latest .
+  # GATE#3: Container/Image scanning via Trivy
+  image-scanning:
+    runs-on: ubuntu-latest
+    needs: [dependency-scanning]
+    if: ${{ !cancelled() }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-            - name: Trivy Scan
-              uses: aquasecurity/trivy-action@master
-              continue-on-error: true
-              with:
-                image-ref: 'my-app:latest'
-                # TODO#17: output format for Security tab integration
-                format: 'sarif'
-                output: 'trivy-results.sarif'
-                # TODO#18: severities to be reported
-                severity: 'HIGH,CRITICAL'
-                # TODO#19: ignore unfixed CVEs
-                ignore-unfixed: true
+      - name: Build Docker image
+        run: docker build -t my-app:latest .
 
-            # TODO#20: upload Trivy SARIF to Security tab
-            - name: Upload Trivy SARIF to Security tab
-              if: always()
-              uses: github/codeql-action/upload-sarif@v3
-              with:
-                sarif_file: 'trivy-results.sarif'
-                category: trivy
+      - name: Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        continue-on-error: true
+        with:
+          image-ref: 'my-app:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
 
-            # TODO#21: upload trivy-results.sarif as workflow artifact
-            - name: Upload Trivy artifact
-              if: always()
-              uses: actions/upload-artifact@v4
-              with:
-                name: trivy-results
-                path: trivy-results.sarif
+      - name: Upload Trivy SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
+
+      - name: Upload Trivy SARIF as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
