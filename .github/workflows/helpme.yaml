@@ -17,7 +17,7 @@ permissions:
   id-token: write
   actions: read
 
-jobs:
+jobs: 
     # GATE#0: Secret scanning (TruffleHog + Gitleaks)
     secret-scanning:
         runs-on: ubuntu-latest
