@@ -1,0 +1,722 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.env.local
+.github/workflows/helpme.yaml
+.gitignore
+app/admin/page.js
+app/layout.js
+app/page.js
+components/UserRole.js
+Dockerfile
+lib/config.js
+next.config.js
+package.json
+pages/api/users/[id].js
+README.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".github/workflows/helpme.yaml">
+name: DevSecOps Pipeline
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# TODO#0: Declare workflow permissions.
+# Hint: scanners need to (a) read code, (b) upload SARIF to Security tab,
+#       (c) comment on PRs/issues, (d) request OIDC tokens.
+# Docs: https://docs.github.com/en/actions/using-jobs/assigning-permissions-to-jobs
+permissions:
+  contents: read
+  # TODO#0a: add permission required for SARIF upload (github/codeql-action/upload-sarif)
+  # TODO#0b: add permission so Gitleaks/Sonar can comment on PRs + issues
+  # TODO#0c: add permission for OIDC token (id-token)
+  id-token: ???
+  issues: ???
+  pull-requests: ???
+  security-events: ???  # required to upload SARIF to GitHub Security tab
+  actions: ???
+
+jobs:
+    # GATE#0: Secret scanning (TruffleHog + Gitleaks)
+    secret-scanning:
+        runs-on: ubuntu-latest
+        steps:
+              # this step checks out the code so scanners can analyze it.
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                # TODO#1: why do secret scanners need git history?
+                # Set fetch-depth to 0 so TruffleHog can diff base..HEAD across all commits.
+                fetch-depth: ???
+
+              # TruffleHog scans code + commit history for verified secrets (live creds). It can be noisy, but is a great first line of defense.
+            - name: Run TruffleHog
+              uses: trufflesecurity/trufflehog@main
+              continue-on-error: true # NOTE THAT THIS IS NOT A BEST PRACTICE — ideally we would fail here and fix secrets before moving on to later gates, but for demo purposes we want to see results from all scanners.
+              with:
+                path: ./
+                # TODO#2: set base + HEAD refs so TruffleHog scans the commit diff
+                # base: ???
+                # head: ???
+                # TODO#3: add extra_args flag to report ONLY VERIFIED secrets (reduce noise)
+                # extra_args: ???
+                base: ${{ github.event.repository.default_branch }}
+                head: ???
+                extra_args: ???
+
+            # Gitleaks scans code + history for regex patterns that look like secrets. It can be more accurate than TruffleHog, but may miss live creds that don't match known patterns.
+            # TODO#4: add Gitleaks step below.
+            # Requirements:
+            #   - uses: gitleaks/gitleaks-action@v2
+            #   - continue-on-error: true
+            #   - env GITHUB_TOKEN from secrets.GITHUB_TOKEN
+            #   - enable SARIF artifact upload + job summary via env vars
+            # Q: difference between TruffleHog (verified live creds) vs Gitleaks (regex patterns)?
+            - name: Run Gitleaks
+              uses: ???
+              continue-on-error: true
+              env:
+                GITHUB_TOKEN: ???
+                GITLEAKS_ENABLE_UPLOAD_ARTIFACT: ???
+                GITLEAKS_ENABLE_SUMMARY: ???
+
+    # GATE#1a: SAST via SonarQube 
+    sast-scan:
+        runs-on: ubuntu-latest
+        needs: secret-scanning # this line means "you need to finish the secret-scanning job before starting this one (sast-scan)"
+        if: ${{ !cancelled() }} 
+        # the above line means "only run this job if the workflow hasn't been cancelled by a previous job (e.g. secret-scanning)"
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                # TODO#5: Sonar needs full history for blame/new-code detection. Set fetch-depth.
+                fetch-depth: ???
+
+            # TODO#6: add SonarQube scan step.
+            # Action: SonarSource/sonarqube-scan-action@v7.1.0
+            # env: SONAR_TOKEN from secrets
+            # continue-on-error: true (so pipeline keeps running BUT IT IS NOT A BEST PRACTICE — ideally we would fail here and fix SAST issues before moving on to later gates)
+            # Q: where do findings show up? (NOT GitHub Security tab — why?)
+            - name: SonarQube Scan
+              uses: ???
+              continue-on-error: true
+              env:
+                  SONAR_TOKEN: ???
+
+    # GATE#1b: SAST via CodeQL (results in GitHub Security tab)
+    codeql-scan:
+        runs-on: ubuntu-latest
+        needs: secret-scanning
+        if: ${{ !cancelled() }} 
+        strategy:
+            matrix:
+                # TODO#7: set correct CodeQL language for this Next.js / React project 
+                #HINT: What language do we use to write React code? What about Next.js API routes?
+                language: [ '???' ]
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+              # CodeQL is GitHub's native code scanning solution that uses a powerful query language to find security and quality issues. It integrates directly with the GitHub Security tab and can be customized with your own queries.
+            - name: Initialize CodeQL
+              uses: github/codeql-action/init@v3
+              with:
+                languages: ${{ matrix.language }}
+                # TODO#8: enable extended security + quality query suites
+                # queries: ???
+                queries: ???,???
+                # RESOURCE — CodeQL query suites:
+                # https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages#codeql-query-suites
+                #
+                # Built-in options:
+                #   security-extended        → OWASP / CWE Top 25 + extra vuln checks
+                #   security-and-quality     → security-extended + maintainability rules
+                #
+                # Q: Why use BOTH suites instead of just "security-extended"?
+                # Q: Could you write a custom .ql query? what would that look like?
+
+            # TODO#9: add analyze step
+            # Action: github/codeql-action/analyze@v3
+            # Set category so matrix runs don't collide in Security tab.
+            - name: Perform CodeQL Analysis
+              uses: ???
+              with:
+                category: "/language:${{ matrix.language }}"
+
+    # GATE#2: Dependency scanning via OWASP Dependency-Check (SARIF + HTML)
+    dependency-scanning:
+        runs-on: ubuntu-latest
+        needs: [sast-scan, secret-scanning]
+        if: ${{ !cancelled() }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            # TODO#10: set up Node 20 using actions/setup-node@v4
+
+            # TODO#11: install npm deps so Dependency-Check can resolve full tree
+            #          Hint: `npm install` or `npm ci`
+
+              # OWASP Dependency-Check is a popular open-source tool that scans your dependencies for known vulnerabilities. It can output results in SARIF format for GitHub Security tab integration, as well as HTML for human-readable reports.
+            - name: Depcheck
+              uses: dependency-check/Dependency-Check_Action@main
+              continue-on-error: true # NOTE THAT THIS IS NOT A BEST PRACTICE — ideally we would fail here and fix secrets before moving on to later gates, but for demo purposes we want to see results from all scanners.
+              id: Depcheck # give this step an ID so we can reference its outputs in later steps (e.g. for SARIF upload)
+              with:
+                project: 'DontEverPushThisCodeV2'
+                path: '.' # scan current directory (which should be the repo root after checkout)
+                # TODO#12: which format integrates with GitHub Security tab?
+                format: '???'
+                out: 'reports'
+                # TODO#13: set fail threshold — block on CVSS >= ?
+                # Hint: CVSS 7.0+ = HIGH
+                args: >
+                    --failOnCVSS ???
+                    --enableRetired
+
+            # TODO#14: upload Depcheck SARIF to GitHub Security tab
+            # Action: github/codeql-action/upload-sarif@v3
+            # sarif_file: reports/dependency-check-report.sarif
+            # category: dependency-check
+            - name: Upload Depcheck SARIF to Security tab
+              if: always() 
+              #the above line meant to upload SARIF even if the Depcheck step fails (e.g. due to high CVSS findings), so that we can see results in Security tab and fix issues.
+              uses: ???
+              continue-on-error: true
+              with:
+                  sarif_file: ???
+                  category: ???
+
+            # TODO#15: upload raw Depcheck report folder as artifact
+            # Action: actions/upload-artifact@v4
+            # name: depcheck-report, path: reports/
+            - name: Upload Depcheck HTML report as artifact
+              if: always() 
+              uses: ???
+              with:
+                name: ???
+                ???: ???
+
+    # GATE#3: Container/Image scanning via Trivy (SARIF + artifact)
+    image-scanning:
+        runs-on: ubuntu-latest
+        needs: [dependency-scanning]
+        if: ${{ !cancelled() }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            # TODO#16: build the Docker image tagged `my-app:latest`
+            #          Hint: `docker build -t ...`
+
+            - name: Trivy Scan
+              uses: aquasecurity/trivy-action@master
+              continue-on-error: true
+              with:
+                image-ref: 'my-app:latest'
+                # TODO#17: output format for Security tab integration
+                format: '???'
+                output: 'trivy-results.sarif'
+                # TODO#18: which severities should be reported? (UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL)
+                severity: '???'
+                # TODO#19: should we include CVEs with no available fix? set flag accordingly
+                # ignore-unfixed: ???
+
+            # TODO#20: upload Trivy SARIF to Security tab
+            # Action: github/codeql-action/upload-sarif@v3, category: trivy
+
+            # TODO#21: upload trivy-results.sarif as workflow artifact
+
+    # GATE#4: IaC scanning (Since there is no infrastructure cod here and it is out of scope for this class so we could skip it HELL YEAH!)
+    # GATE#5: DAST (We have OWASP ZAP workshop here so we can skip this one too! YOHOOO!)
+</file>
+
+<file path=".gitignore">
+.omc
+.vscode
+.github/workflows/.vscode
+</file>
+
+<file path="app/layout.js">
+export const metadata = {
+  title: 'Vulnerable Next.js Demo',
+  description: '⚠️ WARNING: Intentionally vulnerable application for educational purposes only',
+};
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}
+</file>
+
+<file path="app/page.js">
+import UserRole from '../components/UserRole';
+
+export default function Home() {
+  return (
+    <main style={{ 
+      maxWidth: '800px', 
+      margin: '0 auto', 
+      padding: '40px 20px',
+      fontFamily: 'system-ui, -apple-system, sans-serif'
+    }}>
+      <div style={{ 
+        backgroundColor: '#fff3cd', 
+        border: '2px solid #ffc107',
+        borderRadius: '8px',
+        padding: '20px',
+        marginBottom: '30px'
+      }}>
+        <h2 style={{ margin: '0 0 10px 0', color: '#856404' }}>
+          ⚠️ WARNING: INTENTIONALLY VULNERABLE APPLICATION ⚠️
+        </h2>
+        <p style={{ margin: '0', color: '#856404' }}>
+          This application contains <strong>deliberate security vulnerabilities</strong> for educational purposes only. 
+          DO NOT deploy to production or expose to the internet. Use only in isolated local development environments 
+          for security training and awareness.
+        </p>
+      </div>
+
+      <h1 style={{ marginBottom: '10px' }}>Vulnerable Next.js Demo Application</h1>
+      <p style={{ fontSize: '18px', color: '#666', marginBottom: '30px' }}>
+        An educational demonstration of OWASP Top 10 vulnerabilities and common security misconfigurations.
+      </p>
+
+      <div style={{ marginBottom: '30px' }}>
+        <h2>Explore Vulnerabilities:</h2>
+        <nav>
+          <ul style={{ listStyle: 'none', padding: 0 }}>
+            <li style={{ marginBottom: '15px' }}>
+              <a 
+                href="/admin" 
+                style={{ 
+                  color: '#0070f3', 
+                  textDecoration: 'none',
+                  fontSize: '18px',
+                  fontWeight: '500'
+                }}
+              >
+                🔓 Admin Dashboard
+              </a>
+              <p style={{ margin: '5px 0 0 0', color: '#666', fontSize: '14px' }}>
+                Demonstrates <strong>A01:2025 Broken Access Control</strong> - accessible without authentication
+              </p>
+            </li>
+            <li style={{ marginBottom: '15px' }}>
+              <a 
+                href="/api/users/1" 
+                style={{ 
+                  color: '#0070f3', 
+                  textDecoration: 'none',
+                  fontSize: '18px',
+                  fontWeight: '500'
+                }}
+              >
+                👤 User API Demo
+              </a>
+              <p style={{ margin: '5px 0 0 0', color: '#666', fontSize: '14px' }}>
+                Demonstrates <strong>Insecure Direct Object Reference (IDOR)</strong> - access any user's data
+              </p>
+            </li>
+          </ul>
+        </nav>
+      </div>
+
+      <div>
+        <h2>Client-Side Security Control:</h2>
+        <UserRole />
+        <p style={{ marginTop: '10px', fontSize: '14px', color: '#666' }}>
+          This role check is client-side only and can be manipulated in browser DevTools.
+        </p>
+      </div>
+
+      <div style={{ 
+        marginTop: '40px', 
+        padding: '20px',
+        backgroundColor: '#f8f9fa',
+        borderRadius: '8px'
+      }}>
+        <h3>Learning Objectives:</h3>
+        <ul style={{ lineHeight: '1.8' }}>
+          <li><strong>A01:2025 Broken Access Control:</strong> Missing authentication and authorization checks</li>
+          <li><strong>A02:2025 Security Misconfiguration:</strong> Missing security headers, exposed secrets</li>
+          <li><strong>A03:2025 Software Supply Chain Failures:</strong> Vulnerable dependencies with known CVEs</li>
+          <li><strong>Code Quality Issues:</strong> ESLint violations and poor coding practices</li>
+        </ul>
+        <p style={{ marginTop: '15px', fontSize: '14px', color: '#666' }}>
+          Run <code style={{ backgroundColor: '#e9ecef', padding: '2px 6px', borderRadius: '3px' }}>npm audit</code> to see vulnerable dependencies.
+          <br />
+          Run <code style={{ backgroundColor: '#e9ecef', padding: '2px 6px', borderRadius: '3px' }}>npm run lint</code> to see code quality issues.
+        </p>
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="components/UserRole.js">
+'use client';
+import { useState } from 'react';
+
+export default function UserRole() {
+  const [role, setRole] = useState('user');
+  
+  const unusedVariable = 'This will trigger ESLint warning';
+  
+  return (
+    <div style={{ 
+      padding: '10px', 
+      backgroundColor: '#f0f0f0', 
+      borderRadius: '5px',
+      marginTop: '20px'
+    }}>
+      <strong>Current Role:</strong> {role}
+      {role === 'admin' && <span style={{ color: 'red' }}> (Admin Access)</span>}
+      <div style={{ fontSize: '12px', marginTop: '5px', color: '#666' }}>
+        💡 Try changing the role in DevTools: <code>setRole(&apos;admin&apos;)</code>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="Dockerfile">
+FROM node:25-alpine
+COPY package*.json .
+COPY . .
+RUN npm install
+CMD npm run dev
+EXPOSE 3000
+</file>
+
+<file path="next.config.js">
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    appDir: true
+  },
+  async headers() {
+    return [];
+  }
+};
+
+module.exports = nextConfig;
+</file>
+
+<file path="package.json">
+{
+  "name": "vulnerable-nextjs-demo",
+  "version": "1.0.0",
+  "description": "⚠️ WARNING: Intentionally vulnerable Next.js application for educational purposes only. DO NOT deploy to production.",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "13.0.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "lodash": "4.17.20",
+    "axios": "0.21.1"
+  },
+  "devDependencies": {
+    "eslint": "8.0.0",
+    "eslint-config-next": "13.0.0"
+  }
+}
+</file>
+
+<file path="pages/api/users/[id].js">
+const mockUsers = {
+  '1': {
+    id: '1',
+    username: 'admin',
+    email: 'admin@example.com',
+    role: 'admin',
+    ssn: '123-45-6789',
+    creditCard: '4532-1234-5678-9010',
+    salary: '$150,000',
+    address: '123 Admin Street, Seattle, WA 98101'
+  },
+  '2': {
+    id: '2',
+    username: 'john_doe',
+    email: 'john@example.com',
+    role: 'user',
+    ssn: '987-65-4321',
+    creditCard: '5425-2334-3010-9876',
+    salary: '$75,000',
+    address: '456 User Avenue, Portland, OR 97201'
+  },
+  '3': {
+    id: '3',
+    username: 'jane_smith',
+    email: 'jane@example.com',
+    role: 'user',
+    ssn: '555-12-3456',
+    creditCard: '3782-822463-10005',
+    salary: '$85,000',
+    address: '789 Customer Lane, San Francisco, CA 94102'
+  }
+};
+
+export default function handler(req, res) {
+  
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+
+    const { id: userId } = req.query;
+
+    const userData = mockUsers[userId];
+
+    if (!userData) {
+      return res.status(404).json({ 
+        error: 'User not found',
+        message: `No user exists with ID: ${userId}`,
+        availableIds: Object.keys(mockUsers),
+        hint: 'Try IDs 1, 2, or 3 to see other users\' data'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: userData,
+      meta: {
+        requestedBy: 'anonymous',
+        timestamp: new Date().toISOString(),
+        serverInfo: 'Next.js API Route',
+        vulnerability: 'IDOR - Insecure Direct Object Reference'
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({ 
+      error: 'Internal Server Error',
+      message: error.message,
+      stack: error.stack,
+      type: error.constructor.name,
+      details: {
+        file: 'pages/api/users/[id].js',
+        timestamp: new Date().toISOString(),
+        nodeVersion: process.version,
+        platform: process.platform
+      },
+      hint: 'Full error details exposed - useful for reconnaissance!'
+    });
+  }
+}
+</file>
+
+<file path="README.md">
+# DontEverPushThisCodeV2
+
+> Intentionally vulnerable Next.js app — workshop asset for **Software Engineering (2110423) 2025/2**
+
+**WARNING: Never deploy this to production. Ever.**
+
+---
+
+## What This Is
+
+Deliberately broken codebase used to teach DevSecOps pipeline construction.  
+Students build each security gate from scratch using `TODO#` markers in `.github/workflows/helpme.yaml`.
+
+---
+
+## Workshop Overview
+
+| Session | Gate | Tool | Finds |
+|---------|------|------|-------|
+| 0 | Setup | GitHub Actions | Pipeline wiring, permissions |
+| 1 | GATE#0 | TruffleHog + Gitleaks | Secrets in code/history |
+| 2 | GATE#1a | SonarQube | SAST → Sonar dashboard |
+| 3 | GATE#1b | CodeQL | SAST → GitHub Security tab |
+| 4 | GATE#2 | OWASP Dependency-Check | CVEs in npm deps |
+| 5 | GATE#3 | Trivy | CVEs in Docker image |
+
+---
+
+## Quick Start (Local)
+
+```bash
+docker build -t highly-exploitable-site .
+docker run --rm -p 8080:3000 highly-exploitable-site
+# visit http://localhost:8080
+```
+
+---
+
+## Workshop Tasks — TODO Guide
+
+All tasks live in `.github/workflows/helpme.yaml`.  
+Fill each `TODO#` in order. Push to `main` to trigger the pipeline. Check results in:
+- **Actions tab** → job logs
+- **Security tab** → SARIF findings (CodeQL, Gitleaks, Depcheck, Trivy)
+- **SonarCloud dashboard** → Sonar findings
+
+---
+
+### Permissions (TODO#0, 0a, 0b, 0c)
+
+Fix the `permissions:` block so all scanners can upload results and comment on PRs.
+
+**Q:** Why scope permissions per-workflow instead of repo-wide?
+
+---
+
+### GATE#0 — Secret Scanning
+
+**TODO#1** — Why do secret scanners need full git history? Set the correct `fetch-depth`.
+
+**TODO#2** — Configure TruffleHog to scan only the commit diff, not the whole repo every time.
+
+**TODO#3** — Add a flag so TruffleHog reports only secrets it can verify as live credentials.
+
+**TODO#4** — Add a complete Gitleaks step with SARIF upload and job summary enabled.  
+**Q:** TruffleHog verifies live creds. Gitleaks matches regex patterns. Which has more false positives? Which misses more?
+
+---
+
+### GATE#1a — SonarQube SAST
+
+**TODO#5** — Sonar uses git blame for new-code detection. What `fetch-depth` does it need?
+
+**TODO#6** — Add the SonarQube scan step. Needs a repo secret. Set `continue-on-error` so later gates still run.  
+**Q:** Findings appear in SonarCloud dashboard, NOT the GitHub Security tab. Why?
+
+---
+
+### GATE#1b — CodeQL SAST
+
+**TODO#7** — Set the correct CodeQL language for a Next.js/React project.
+
+**TODO#8** — Enable extended security + quality query suites.  
+Docs: https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages#codeql-query-suites  
+**Q:** Why use both suites? What's the difference between `security-extended` and `security-and-quality`?
+
+**TODO#9** — Add the analyze step. Set `category` to avoid collisions when scanning multiple languages.  
+**Q:** What breaks if two matrix languages share the same category?
+
+---
+
+### GATE#2 — Dependency Scanning
+
+**TODO#10** — Set up Node 20 so the scanner can resolve the full dependency tree.
+
+**TODO#11** — Install npm dependencies before running the scan.
+
+**TODO#12** — Choose the output format that integrates with GitHub Security tab.
+
+**TODO#13** — Set a CVSS fail threshold. What score separates MEDIUM from HIGH?  
+CVSS calculator: https://www.first.org/cvss/calculator/3.1
+
+**TODO#14** — Upload the SARIF report to GitHub Security tab.
+
+**TODO#15** — Upload the raw report folder as a downloadable workflow artifact.
+
+---
+
+### GATE#3 — Container Scanning
+
+**TODO#16** — Build the Docker image before scanning it.
+
+**TODO#17** — Set the output format for Security tab integration.
+
+**TODO#18** — Choose which severity levels to report.  
+Trivy severity docs: https://aquasecurity.github.io/trivy/latest/docs/configuration/filtering/#by-severity  
+**Q:** Should LOW/MEDIUM block a build? Why or why not?
+
+**TODO#19** — Decide whether to report CVEs that have no available fix yet.
+
+**TODO#20** — Upload the SARIF to the GitHub Security tab.
+
+**TODO#21** — Upload the raw SARIF as a downloadable artifact.
+
+---
+
+## Where to See Results
+
+| Result type | Location |
+|-------------|----------|
+| Secrets (Gitleaks) | Security tab → Code scanning |
+| Secrets (TruffleHog) | Actions tab → job log |
+| SAST (CodeQL) | Security tab → Code scanning |
+| SAST (SonarQube) | https://sonarcloud.io → your project |
+| SCA (Depcheck) | Security tab + Actions → Artifacts |
+| Container (Trivy) | Security tab + Actions → Artifacts |
+
+---
+
+## Secrets Required
+
+Add in repo → Settings → Secrets and variables → Actions:
+
+| Secret | Where to get |
+|--------|-------------|
+| `SONAR_TOKEN` | https://sonarcloud.io → My Account → Security |
+| `GITHUB_TOKEN` | Auto-provided by GitHub Actions — no setup needed |
+
+---
+
+## Security Notice
+
+Intentionally vulnerable. Contains XSS, SQL injection, hardcoded secrets, and outdated dependencies.  
+This is not a real website. One must not (ever) deploy this in the production server
+</file>
+
+</files>
